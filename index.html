@@ -1,1 +1,723 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>METRO COMPLEX - ULTIMATE EDITION</title>
+    <!-- Importation de Leaflet pour la carte -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Importation des icônes FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* POLICES FUTURISTES */
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-purple: #bc13fe;
+            --neon-green: #0aff60;
+            --neon-red: #ff2a2a;
+            --neon-orange: #ff9e00;
+            --bg-dark: #050508;
+            --glass: rgba(12, 18, 28, 0.95);
+            --border: rgba(255,255,255,0.15);
+        }
+
+        body { margin: 0; padding: 0; font-family: 'Rajdhani', sans-serif; background: var(--bg-dark); color: white; overflow: hidden; user-select: none; }
+        
+        /* --- CARTE --- */
+        #map { height: 100vh; width: 100vw; z-index: 1; background: #111; }
+        
+        /* --- UI LAYER (Interface par dessus la carte) --- */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; /* Important: laisse passer les clics vers la carte par défaut */
+            z-index: 1000; display: flex; flex-direction: column; justify-content: space-between;
+        }
+
+        /* Classe pour réactiver les clics sur les boutons */
+        .pointer-auto { pointer-events: auto; }
+
+        /* --- BARRE DU HAUT --- */
+        .top-bar {
+            background: linear-gradient(180deg, rgba(0,0,0,0.95) 0%, transparent 100%);
+            padding: 15px 30px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .game-title { font-size: 28px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 10px var(--neon-blue); }
+        .stats { display: flex; gap: 25px; font-family: 'Share Tech Mono'; font-size: 18px; text-shadow: 0 0 5px rgba(0,0,0,0.5); }
+        .stat i { color: var(--neon-blue); margin-right: 8px; }
+
+        /* --- OUTIL CONSTRUCTION (Zone flottante) --- */
+        #build-panel {
+            position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%);
+            background: var(--neon-purple); padding: 10px 25px; border-radius: 50px;
+            display: none; align-items: center; gap: 15px; box-shadow: 0 0 30px rgba(188, 19, 254, 0.4);
+            font-weight: bold; font-size: 14px; pointer-events: auto;
+        }
+        .btn-mini { background: black; color: white; border: none; padding: 5px 12px; border-radius: 15px; cursor: pointer; font-weight: bold; font-family: 'Rajdhani'; text-transform: uppercase; }
+        .btn-mini:hover { background: white; color: black; }
+
+        /* --- DOCK (MENU BAS) --- */
+        .dock {
+            background: linear-gradient(0deg, rgba(0,0,0,1) 0%, transparent 100%);
+            padding: 20px; display: flex; justify-content: center; gap: 15px; pointer-events: auto;
+        }
+        .dock-btn {
+            width: 70px; height: 70px; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+            border-radius: 12px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: 0.2s; position: relative; color: #aaa;
+        }
+        .dock-btn:hover, .dock-btn.active { background: rgba(0, 243, 255, 0.1); border-color: var(--neon-blue); color: white; transform: translateY(-10px); box-shadow: 0 0 20px var(--neon-blue); }
+        .dock-btn i { font-size: 24px; margin-bottom: 5px; }
+        .dock-btn span { font-size: 10px; font-weight: bold; text-transform: uppercase; }
+        .alert-badge { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; background: var(--neon-red); border-radius: 50%; display: none; animation: pulse 1s infinite; }
+
+        /* --- FENETRES MODALES --- */
+        .modal-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 2000;
+            display: none; justify-content: center; align-items: center; pointer-events: auto;
+        }
+        .window {
+            width: 900px; height: 700px; background: var(--glass); border: 1px solid var(--border);
+            border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8); animation: zoomIn 0.2s ease-out;
+        }
+        @keyframes zoomIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        .win-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); }
+        .win-title { font-size: 24px; font-weight: bold; color: var(--neon-blue); letter-spacing: 2px; text-transform: uppercase; }
+        .win-body { flex: 1; padding: 25px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+
+        /* --- COMPOSANTS INTERNES --- */
+        .card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); padding: 20px; border-radius: 6px; position: relative; }
+        .card-title { color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 10px; font-weight: bold; }
+        .card-val { font-size: 30px; font-family: 'Share Tech Mono'; font-weight: bold; }
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        /* BOUTIQUE ITEMS */
+        .shop-item { border: 1px solid var(--border); padding: 15px; border-radius: 8px; text-align: center; transition: 0.2s; background: rgba(0,0,0,0.2); }
+        .shop-item:hover { border-color: var(--neon-blue); background: rgba(0, 243, 255, 0.05); }
+        .shop-icon { font-size: 30px; color: var(--neon-blue); margin: 10px 0; }
+        .btn-buy { width: 100%; background: var(--neon-blue); border: none; padding: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; font-family: 'Rajdhani'; text-transform: uppercase; letter-spacing: 1px; }
+        .btn-buy:hover { filter: brightness(1.2); color: black; }
+        .btn-danger { background: var(--neon-red); color: white; }
+
+        /* LIGNES DANS LE MENU RESEAU */
+        .line-row { display: flex; align-items: center; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 6px; border-left: 5px solid white; gap: 15px; margin-bottom: 10px; }
+        .line-status { padding: 4px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; text-transform: uppercase; color: black; }
+        .line-select { background: black; color: white; border: 1px solid #444; padding: 8px; font-family: 'Rajdhani'; cursor: pointer; }
+
+        /* --- ECRAN DE DEMARRAGE --- */
+        #start-screen {
+            position: absolute; inset: 0; background: black; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(circle at center, #111 0%, #000 100%);
+        }
+        .city-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .city-btn { padding: 20px 40px; border: 1px solid var(--neon-blue); color: var(--neon-blue); background: transparent; font-size: 20px; cursor: pointer; font-family: 'Rajdhani'; text-transform: uppercase; letter-spacing: 2px; transition: 0.3s; }
+        .city-btn:hover { background: var(--neon-blue); color: black; box-shadow: 0 0 30px var(--neon-blue); }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        /* MARKERS SUR LA CARTE */
+        .station-marker { background: #111; border: 2px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; transition: 0.2s; box-shadow: 0 0 5px black; }
+        .station-marker:hover { transform: scale(1.3); border-color: var(--neon-blue); cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <!-- ECRAN DE DEMARRAGE -->
+    <div id="start-screen" class="pointer-auto">
+        <h1 style="font-size: 70px; color:white; margin-bottom: 0; text-shadow:0 0 30px var(--neon-blue);">METRO <span style="color:var(--neon-blue)">COMPLEX</span></h1>
+        <p style="color:#666; letter-spacing: 5px; margin-bottom: 50px;">SYSTÈME DE GESTION URBAINE v4.0</p>
+        <div class="city-grid">
+            <button class="city-btn" onclick="Game.init('Paris')">Paris</button>
+            <button class="city-btn" onclick="Game.init('Lille')">Lille</button>
+            <button class="city-btn" onclick="Game.init('New York')">New York</button>
+            <button class="city-btn" onclick="Game.init('Londres')">Londres</button>
+            <button class="city-btn" onclick="Game.init('Chicago')">Chicago</button>
+            <button class="city-btn" onclick="Game.init('Los Angeles')">Los Angeles</button>
+        </div>
+    </div>
+
+    <!-- UI LAYER (JEU) -->
+    <div id="ui-layer">
+        <!-- BARRE SUPERIEURE -->
+        <div class="top-bar pointer-auto">
+            <div class="game-title" style="color:var(--neon-blue);">METRO COMPLEX</div>
+            <div class="stats">
+                <div><i class="fas fa-wallet"></i> <span id="ui-money">3,000 M$</span></div>
+                <div><i class="fas fa-chart-line"></i> <span id="ui-income" style="color:var(--neon-green)">+0/s</span></div>
+                <div><i class="fas fa-user-friends"></i> <span id="ui-pax">0/h</span></div>
+                <div><i class="fas fa-clock"></i> <span id="ui-day">J-1</span></div>
+            </div>
+        </div>
+
+        <!-- ZONE DE CONSTRUCTION -->
+        <div id="build-panel">
+            <i class="fas fa-drafting-compass"></i>
+            <span id="build-txt">Sélectionnez les stations...</span>
+            <button class="btn-mini" onclick="Construction.finishLine()">TERMINER</button>
+            <button class="btn-mini" style="background:#333;" onclick="Construction.cancel()">ANNULER</button>
+        </div>
+
+        <!-- DOCK PRINCIPAL -->
+        <div class="dock">
+            <div class="dock-btn" onclick="UI.openWindow('win-finance')"><i class="fas fa-coins"></i><span>Finance</span></div>
+            <div class="dock-btn" onclick="UI.openWindow('win-shop')"><i class="fas fa-shopping-cart"></i><span>Boutique</span></div>
+            <div class="dock-btn" onclick="UI.openWindow('win-network')">
+                <i class="fas fa-network-wired"></i><span>Réseau</span>
+                <div class="alert-badge" id="alert-network"></div>
+            </div>
+            <div class="dock-btn" onclick="UI.openWindow('win-politics')"><i class="fas fa-landmark"></i><span>Politique</span></div>
+            <div class="dock-btn" id="btn-station" onclick="Construction.setTool('station')"><i class="fas fa-map-marker-alt"></i><span>Station</span></div>
+            <div class="dock-btn" id="btn-line" onclick="Construction.setTool('line')"><i class="fas fa-bezier-curve"></i><span>Ligne</span></div>
+        </div>
+    </div>
+
+    <!-- FENETRES (MODALS) -->
+    
+    <!-- 1. FINANCE -->
+    <div id="win-finance" class="modal-overlay">
+        <div class="window">
+            <div class="win-header"><span class="win-title">Direction Financière</span><button class="btn-mini" onclick="UI.closeWindows()">FERMER</button></div>
+            <div class="win-body">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-title">Trésorerie</div>
+                        <div class="card-val" id="fin-cash" style="color:var(--neon-blue)"></div>
+                    </div>
+                    <div class="card" style="border-color:var(--neon-red)">
+                        <div class="card-title">Dette Totale</div>
+                        <div class="card-val" id="fin-debt" style="color:var(--neon-red)"></div>
+                        <div style="font-size:12px; margin-top:5px; color:#aaa">Intérêts: <span id="fin-interest"></span> / sem</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Bilan Hebdomadaire</div>
+                    <div style="display:flex; justify-content:space-between"><span>Vente Tickets</span><span style="color:var(--neon-green)" id="row-ticket">+0</span></div>
+                    <div style="display:flex; justify-content:space-between"><span>Maintenance Trains</span><span style="color:var(--neon-red)" id="row-train">-0</span></div>
+                    <div style="display:flex; justify-content:space-between"><span>Maintenance Lignes</span><span style="color:var(--neon-red)" id="row-line">-0</span></div>
+                    <hr style="border-color:#333">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:20px;"><span>NET</span><span id="row-net">0</span></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Leviers Économiques</div>
+                    <div style="display:flex; align-items:center; gap:20px; margin-bottom:15px;">
+                        <span>Prix Ticket: <span id="val-ticket" style="font-weight:bold; font-size:18px;">$2.50</span></span>
+                        <input type="range" min="0.5" max="10" step="0.1" value="2.5" style="flex:1; accent-color: var(--neon-blue);" oninput="Economy.setTicket(this.value)">
+                    </div>
+                    <button class="btn-buy" onclick="Economy.takeLoan()">EMPRUNTER 500 M$ (Taux 5%)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. BOUTIQUE -->
+    <div id="win-shop" class="modal-overlay">
+        <div class="window">
+            <div class="win-header"><span class="win-title">Concessionnaire Ferroviaire</span><button class="btn-mini" onclick="UI.closeWindows()">FERMER</button></div>
+            <div class="win-body">
+                <div style="text-align:right; color:#888;">Trains en stock (non assignés): <span id="stock-count" style="color:white; font-weight:bold; font-size:20px;">0</span></div>
+                <div class="grid-3" id="shop-grid">
+                    <!-- Généré par JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. RESEAU -->
+    <div id="win-network" class="modal-overlay">
+        <div class="window">
+            <div class="win-header"><span class="win-title">Gestion du Réseau</span><button class="btn-mini" onclick="UI.closeWindows()">FERMER</button></div>
+            <div class="win-body">
+                <div id="lines-list">
+                    <!-- Généré par JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. POLITIQUE -->
+    <div id="win-politics" class="modal-overlay">
+        <div class="window">
+            <div class="win-header"><span class="win-title">Affaires Publiques</span><button class="btn-mini" onclick="UI.closeWindows()">FERMER</button></div>
+            <div class="win-body">
+                <div class="card">
+                    <div class="card-title">Cote de Popularité</div>
+                    <div class="card-val" id="pol-approval">50%</div>
+                    <div style="width:100%; height:10px; background:#333; margin-top:10px; border-radius:5px; overflow:hidden;">
+                        <div id="pol-bar" style="width:50%; height:100%; background:var(--neon-blue); transition: width 0.5s;"></div>
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <button class="btn-buy" onclick="Politics.lobby()">LOBBYING (-50M$)</button>
+                    <button class="btn-buy" style="background:#444" onclick="Politics.campaign()">CAMPAGNE PUB (-20M$)</button>
+                </div>
+                <div class="card" style="border-color:var(--neon-red)">
+                    <div class="card-title">Gestion de Crise</div>
+                    <p style="font-size:12px; color:#aaa;">Réparer instantanément tous les incidents critiques sur le réseau.</p>
+                    <button class="btn-buy btn-danger" onclick="Events.repairAll()">RÉPARATION TOTALE (-100M$)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAP CONTAINER -->
+    <div id="map"></div>
+
+    <!-- SCRIPTS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- DONNEES DE JEU ---
+        const Cities = {
+            'Paris': [48.8566, 2.3522], 'Lille': [50.6292, 3.0573], 'New York': [40.7128, -74.0060],
+            'Londres': [51.5074, -0.1278], 'Chicago': [41.8781, -87.6298], 'Los Angeles': [34.0522, -118.2437]
+        };
+
+        const Trains = [
+            {id:'t1', name:'Rame 1980', cap:150, speed:0.8, cost:50, maint:2, icon:'fa-subway'},
+            {id:'t2', name:'Métro Standard', cap:300, speed:1.2, cost:120, maint:5, icon:'fa-train'},
+            {id:'t3', name:'City Express', cap:450, speed:1.8, cost:200, maint:10, icon:'fa-bolt'},
+            {id:'t4', name:'Double Pont', cap:800, speed:1.0, cost:300, maint:12, icon:'fa-bus'},
+            {id:'t5', name:'CyberTrain', cap:600, speed:2.5, cost:500, maint:25, icon:'fa-rocket'},
+            {id:'t6', name:'Quantum Maglev', cap:1200, speed:4.0, cost:1000, maint:50, icon:'fa-atom'}
+        ];
+
+        // --- MOTEUR DE JEU ---
+        const Game = {
+            map: null,
+            tool: null, // 'station' ou 'line'
+            money: 3000,
+            debt: 0,
+            day: 1,
+            ticket: 2.50,
+            approval: 50,
+            
+            stations: [],
+            lines: [],
+            inventory: [], // Trains achetés mais pas assignés
+
+            init: function(city) {
+                document.getElementById('start-screen').style.display = 'none';
+                
+                // Initialisation Carte
+                this.map = L.map('map', {zoomControl: false}).setView(Cities[city], 13);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { 
+                    attribution: '&copy; OpenStreetMap &copy; CARTO',
+                    maxZoom: 19 
+                }).addTo(this.map);
+
+                // GESTION CLIC CARTE POUR CONSTRUCTION
+                this.map.on('click', (e) => {
+                    if(Game.tool === 'station') Construction.createStation(e.latlng);
+                });
+
+                // Génération Zones Demande (Heatmap)
+                this.genHeatmap(Cities[city]);
+
+                // Initialisation UI
+                UI.initShop();
+
+                // Boucles de jeu
+                setInterval(() => Economy.tick(), 1000);   // Économie (1s = 1 cycle)
+                setInterval(() => Animation.tick(), 50);   // Animation Trains (20 FPS)
+                setInterval(() => Events.tick(), 10000);   // Événements aléatoires (10s)
+
+                UI.update();
+            },
+
+            genHeatmap: function(center) {
+                for(let i=0; i<20; i++) {
+                    let lat = center[0] + (Math.random()-0.5)*0.15;
+                    let lng = center[1] + (Math.random()-0.5)*0.15;
+                    let col = Math.random()>0.5 ? '#ff2a2a' : '#00f3ff';
+                    L.circle([lat,lng], {color:'transparent', fillColor:col, fillOpacity:0.1, radius:800 + Math.random()*1000}).addTo(this.map);
+                }
+            }
+        };
+
+        // --- SYSTÈME DE CONSTRUCTION ---
+        const Construction = {
+            tempLine: [],
+            tempPoly: null,
+
+            setTool: function(t) {
+                Game.tool = t;
+                document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+                if(t) document.getElementById('btn-'+t).classList.add('active');
+                
+                if(t !== 'line') this.cancel(); // Reset si on change d'outil
+            },
+
+            createStation: function(latlng) {
+                if(Game.money < 50) return alert("Fonds insuffisants (50M$ requis)");
+                Game.money -= 50;
+
+                let id = Game.stations.length;
+                let mk = L.divIcon({className: 'station-marker', html: '<i class="fas fa-train" style="font-size:10px"></i>', iconSize:[20,20]});
+                let marker = L.marker(latlng, {icon: mk}).addTo(Game.map);
+
+                // Interaction Station
+                marker.on('click', () => {
+                    if(Game.tool === 'line') Construction.addToLine(id);
+                    else if(!Game.tool) Construction.stationMenu(id);
+                });
+
+                Game.stations.push({id, latlng, marker, level:1});
+                UI.update();
+            },
+
+            addToLine: function(id) {
+                if(this.tempLine.includes(id)) return;
+                this.tempLine.push(id);
+                
+                // Feedback Visuel
+                Game.stations[id].marker.getElement().style.borderColor = 'var(--neon-purple)';
+                document.getElementById('build-panel').style.display = 'flex';
+                document.getElementById('build-txt').innerText = this.tempLine.length + " Stations";
+
+                // Tracer pointillé
+                let points = this.tempLine.map(sid => Game.stations[sid].latlng);
+                if(this.tempPoly) Game.map.removeLayer(this.tempPoly);
+                this.tempPoly = L.polyline(points, {color:'#bc13fe', dashArray:'5,10'}).addTo(Game.map);
+            },
+
+            finishLine: function() {
+                if(this.tempLine.length < 2) return alert("Une ligne doit avoir au moins 2 stations.");
+                let name = prompt("Nom de la ligne ?", "Ligne "+(Game.lines.length+1));
+                if(!name) return;
+
+                let points = this.tempLine.map(sid => Game.stations[sid].latlng);
+                // Calcul coût distance
+                let dist = 0;
+                for(let i=0; i<points.length-1; i++) dist += Game.map.distance(points[i], points[i+1]);
+                let cost = Math.floor(dist/100);
+
+                if(Game.money < cost) return alert("Trop cher: "+cost+"M$ requis.");
+                Game.money -= cost;
+
+                let color = '#'+Math.floor(Math.random()*16777215).toString(16);
+                let poly = L.polyline(points, {color:color, weight:5, opacity: 0.8}).addTo(Game.map);
+
+                Game.lines.push({
+                    id: Game.lines.length,
+                    name, color, poly,
+                    stations: [...this.tempLine],
+                    trains: [],
+                    distKm: dist/1000,
+                    incident: null
+                });
+
+                this.cancel();
+                UI.refreshNetwork();
+                UI.update();
+            },
+
+            cancel: function() {
+                this.tempLine = [];
+                if(this.tempPoly) Game.map.removeLayer(this.tempPoly);
+                this.tempPoly = null;
+                Game.stations.forEach(s => s.marker.getElement().style.borderColor = 'white');
+                document.getElementById('build-panel').style.display = 'none';
+            },
+
+            stationMenu: function(id) {
+                let s = Game.stations[id];
+                let cost = s.level * 100;
+                if(confirm(`Améliorer Station ${id} (Niveau ${s.level} -> ${s.level+1}) pour ${cost}M$? (Augmente la demande locale)`)) {
+                    if(Game.money >= cost) {
+                        Game.money -= cost;
+                        s.level++;
+                        s.marker.getElement().style.boxShadow = `0 0 ${10*s.level}px var(--neon-blue)`;
+                        UI.update();
+                    } else {
+                        alert("Fonds insuffisants.");
+                    }
+                }
+            }
+        };
+
+        // --- ÉCONOMIE ---
+        const Economy = {
+            tick: function() {
+                Game.day++;
+                let wIncome = 0;
+                let wMaintT = 0;
+                let wMaintL = 0;
+
+                Game.lines.forEach(line => {
+                    if(line.incident && line.incident.level === 'red') return; // Ligne bloquée
+
+                    // Calcul Passagers
+                    let cap = line.trains.reduce((sum,t) => sum + t.cap, 0);
+                    // Demande basée sur capacité + niveau stations + popularité
+                    let stationBoost = line.stations.reduce((acc, sid) => acc + Game.stations[sid].level, 0);
+                    let demand = (cap * 0.4) + (stationBoost * 20);
+                    
+                    demand *= (Game.approval/50); // Facteur politique
+                    if(line.incident) demand *= 0.3; // Accident réduit trafic
+
+                    let pax = Math.min(cap, demand); // On ne peut pas transporter plus que la capacité
+                    wIncome += pax * Game.ticket;
+                    
+                    line.trains.forEach(t => wMaintT += t.maint);
+                    wMaintL += line.distKm * 2;
+                });
+
+                let interest = Game.debt * 0.005; // Intérêts dette
+                Game.money += (wIncome - wMaintT - wMaintL - interest);
+
+                // Mise à jour visuelle fenêtre finance
+                if(document.getElementById('win-finance').style.display === 'flex') {
+                    document.getElementById('row-ticket').innerText = "+" + Math.floor(wIncome);
+                    document.getElementById('row-train').innerText = "-" + Math.floor(wMaintT);
+                    document.getElementById('row-line').innerText = "-" + Math.floor(wMaintL);
+                    document.getElementById('row-net').innerText = Math.floor(wIncome - wMaintT - wMaintL - interest);
+                }
+                
+                document.getElementById('ui-income').innerText = (wIncome > (wMaintT+wMaintL) ? "+" : "") + Math.floor(wIncome - wMaintT - wMaintL) + "/s";
+                UI.update();
+            },
+
+            takeLoan: function() {
+                Game.money += 500; Game.debt += 500;
+                UI.update();
+            },
+            setTicket: function(v) {
+                Game.ticket = v;
+                document.getElementById('val-ticket').innerText = "$"+parseFloat(v).toFixed(2);
+            }
+        };
+
+        // --- BOUTIQUE & INVENTAIRE ---
+        const Shop = {
+            buy: function(tid) {
+                let t = Trains.find(x => x.id === tid);
+                if(Game.money < t.cost) return alert("Pas assez d'argent");
+                Game.money -= t.cost;
+                Game.inventory.push(t);
+                UI.updateShop();
+                UI.update();
+            },
+
+            assign: function(lineId, typeId) {
+                let idx = Game.inventory.findIndex(t => t.id === typeId);
+                if(idx === -1) return;
+                
+                let t = Game.inventory.splice(idx, 1)[0];
+                let line = Game.lines[lineId];
+                
+                // Création marqueur train visuel
+                let startPos = Game.stations[line.stations[0]].latlng;
+                let mk = L.circleMarker(startPos, {radius:4, color:'white', fillColor:'white', fillOpacity:1}).addTo(Game.map);
+
+                line.trains.push({
+                    ...t,
+                    marker: mk,
+                    seg: 0,
+                    prog: 0,
+                    dir: 1
+                });
+
+                UI.refreshNetwork();
+                UI.updateShop();
+            }
+        };
+
+        // --- ÉVÉNEMENTS & POLITIQUE ---
+        const Events = {
+            tick: function() {
+                // Politique Fluctuante
+                if(Game.day % 20 === 0) {
+                    Game.approval += (Game.ticket > 5 ? -2 : 1);
+                    if(Game.approval > 100) Game.approval = 100;
+                    if(Game.approval < 0) Game.approval = 0;
+                    UI.updatePolitics();
+                }
+
+                // Accidents Aléatoires
+                if(Game.lines.length > 0 && Math.random() < 0.2) {
+                    let line = Game.lines[Math.floor(Math.random()*Game.lines.length)];
+                    if(line.incident) return;
+
+                    let r = Math.random();
+                    let type = r < 0.5 ? 'yellow' : (r < 0.8 ? 'orange' : 'red');
+                    let names = {'yellow':'Signalisation', 'orange':'Panne Elec', 'red':'Inondation'};
+                    
+                    line.incident = {level: type, name: names[type]};
+                    
+                    let col = type==='yellow'?'#f1c40f' : (type==='orange'?'#e67e22':'#e74c3c');
+                    line.poly.setStyle({color: col, dashArray: '10,10'});
+                    
+                    document.getElementById('alert-network').style.display = 'block';
+                    UI.refreshNetwork();
+                }
+            },
+
+            repair: function(lid) {
+                let line = Game.lines[lid];
+                let cost = line.incident.level === 'red' ? 50 : 20;
+                if(Game.money < cost) return alert("Pas assez d'argent");
+                
+                Game.money -= cost;
+                line.incident = null;
+                line.poly.setStyle({color: line.color, dashArray: null});
+                
+                // Vérifier s'il reste des alertes
+                if(!Game.lines.some(l => l.incident)) document.getElementById('alert-network').style.display = 'none';
+                
+                UI.refreshNetwork();
+                UI.update();
+            },
+            
+            repairAll: function() {
+                if(Game.money < 100) return alert("Pas assez d'argent (100M$)");
+                Game.money -= 100;
+                Game.lines.forEach(l => {
+                    if(l.incident) {
+                        l.incident = null;
+                        l.poly.setStyle({color: l.color, dashArray: null});
+                    }
+                });
+                document.getElementById('alert-network').style.display = 'none';
+                UI.refreshNetwork();
+                UI.update();
+            }
+        };
+
+        const Politics = {
+            lobby: function() {
+                if(Game.money < 50) return;
+                Game.money -= 50;
+                Game.approval = Math.min(100, Game.approval + 10);
+                UI.updatePolitics();
+                UI.update();
+            },
+            campaign: function() {
+                if(Game.money < 20) return;
+                Game.money -= 20;
+                Game.approval = Math.min(100, Game.approval + 5);
+                UI.updatePolitics();
+                UI.update();
+            }
+        };
+
+        // --- ANIMATION ---
+        const Animation = {
+            tick: function() {
+                Game.lines.forEach(l => {
+                    let spdMod = 1;
+                    if(l.incident) {
+                        if(l.incident.level === 'yellow') spdMod = 0.5;
+                        if(l.incident.level === 'orange') spdMod = 0.2;
+                        if(l.incident.level === 'red') spdMod = 0;
+                    }
+
+                    l.trains.forEach(t => {
+                        if(spdMod === 0) return;
+                        
+                        let step = (t.speed * 0.005) * spdMod;
+                        t.prog += step * t.dir;
+
+                        // Gestion Fin de Segment
+                        if(t.prog >= 1) {
+                            t.prog = 0; t.seg++;
+                            if(t.seg >= l.stations.length-1) { t.dir = -1; t.seg = l.stations.length-2; t.prog = 1; }
+                        } else if(t.prog <= 0 && t.dir === -1) {
+                            t.prog = 1; t.seg--;
+                            if(t.seg < 0) { t.dir = 1; t.seg = 0; t.prog = 0; }
+                        }
+
+                        // Interpolation position
+                        let p1 = Game.stations[l.stations[t.seg]].latlng;
+                        let p2 = Game.stations[l.stations[t.seg+1]].latlng;
+                        let lat = p1.lat + (p2.lat - p1.lat) * t.prog;
+                        let lng = p1.lng + (p2.lng - p1.lng) * t.prog;
+                        t.marker.setLatLng([lat,lng]);
+                    });
+                });
+            }
+        };
+
+        // --- GESTIONNAIRE INTERFACE (UI) ---
+        const UI = {
+            openWindow: function(id) {
+                this.closeWindows();
+                document.getElementById(id).style.display = 'flex';
+                if(id === 'win-shop') this.updateShop();
+                if(id === 'win-network') this.refreshNetwork();
+                if(id === 'win-politics') this.updatePolitics();
+                
+                // Update finance
+                document.getElementById('fin-cash').innerText = Math.floor(Game.money) + " M$";
+                document.getElementById('fin-debt').innerText = Math.floor(Game.debt) + " M$";
+                document.getElementById('fin-interest').innerText = Math.floor(Game.debt*0.005);
+            },
+            closeWindows: function() {
+                document.querySelectorAll('.modal-overlay').forEach(e => e.style.display = 'none');
+            },
+            update: function() {
+                document.getElementById('ui-money').innerText = Math.floor(Game.money).toLocaleString() + " M$";
+                document.getElementById('ui-day').innerText = "Jour " + Game.day;
+            },
+            initShop: function() {
+                let div = document.getElementById('shop-grid');
+                div.innerHTML = "";
+                Trains.forEach(t => {
+                    div.innerHTML += `
+                    <div class="shop-item">
+                        <div style="font-weight:bold">${t.name}</div>
+                        <div class="shop-icon"><i class="fas ${t.icon}"></i></div>
+                        <div style="font-size:12px; color:#aaa">Cap: ${t.cap} | Vit: ${t.speed}</div>
+                        <div style="font-size:12px;">Maint: ${t.maint}M$/sem</div>
+                        <button class="btn-buy" onclick="Shop.buy('${t.id}')">${t.cost} M$</button>
+                    </div>`;
+                });
+            },
+            updateShop: function() {
+                document.getElementById('stock-count').innerText = Game.inventory.length;
+            },
+            refreshNetwork: function() {
+                let div = document.getElementById('lines-list');
+                div.innerHTML = "";
+                if(Game.lines.length === 0) div.innerHTML = "<p style='color:#666; text-align:center'>Aucune ligne active.</p>";
+
+                Game.lines.forEach(l => {
+                    let status = l.incident 
+                        ? `<span class="line-status" style="background:var(--neon-red); color:white">${l.incident.name}</span> <button class="btn-mini" style="background:var(--neon-red); margin-left:10px;" onclick="Events.repair(${l.id})">RÉPARER</button>` 
+                        : `<span class="line-status" style="background:var(--neon-green)">OK</span>`;
+                    
+                    // Liste déroulante inventaire
+                    let opts = `<option value="">+ Ajouter Train</option>`;
+                    let types = [...new Set(Game.inventory.map(t=>t.id))];
+                    types.forEach(tid => {
+                        let count = Game.inventory.filter(x => x.id === tid).length;
+                        let name = Trains.find(x => x.id === tid).name;
+                        opts += `<option value="${tid}">${name} (x${count})</option>`;
+                    });
+
+                    div.innerHTML += `
+                    <div class="line-row" style="border-color:${l.color}">
+                        <div style="flex:1">
+                            <div style="font-weight:bold; font-size:18px;">${l.name} ${status}</div>
+                            <div style="font-size:12px; color:#aaa; margin-top:5px;">${l.trains.length} Trains | ${l.stations.length} Stations</div>
+                        </div>
+                        <select class="line-select" onchange="if(this.value) Shop.assign(${l.id}, this.value)">${opts}</select>
+                    </div>`;
+                });
+            },
+            updatePolitics: function() {
+                document.getElementById('pol-approval').innerText = Game.approval + "%";
+                document.getElementById('pol-bar').style.width = Game.approval + "%";
+                let col = Game.approval > 60 ? 'var(--neon-green)' : (Game.approval < 30 ? 'var(--neon-red)' : 'var(--neon-blue)');
+                document.getElementById('pol-bar').style.background = col;
+            }
+        };
+
+    </script>
+</body>
+</html>
